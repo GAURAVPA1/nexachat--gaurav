@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexaChat</title>
+<style>
+:root{--bg:#f5f6fb;--panel:#fff;--ink:#1c1e33;--mute:#6a6f8a;--line:#e1e4f0;--acc:#5b5bf0;--me:#5b5bf0;--bot:#eceefa}
+@media (prefers-color-scheme:dark){:root{--bg:#10111d;--panel:#191b2e;--ink:#eceefb;--mute:#9aa0c0;--line:#2a2d49;--bot:#23264a}}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:flex;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,sans-serif}
+aside{width:290px;background:var(--panel);border-right:1px solid var(--line);padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+h1{margin:0;font-size:1.3rem}h2{margin:0;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+.doc{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:.88rem}
+.doc span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc small{color:var(--mute)}
+.doc button{padding:0 8px;border:0;color:var(--mute)}
+label.t{display:flex;gap:8px;align-items:center;font-size:.9rem}
+#note{font-size:.82rem;color:var(--mute)}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+#log{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:12px}
+.m{max-width:760px;padding:10px 14px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
+.me{align-self:flex-end;background:var(--me);color:#fff}
+.bot{align-self:flex-start;background:var(--bot)}
+.src{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+.src span{font-size:.75rem;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:1px 9px;color:var(--mute)}
+form{display:flex;gap:8px;padding:14px 22px;border-top:1px solid var(--line);background:var(--panel)}
+input[type=text]{flex:1;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#mic.rec{background:#e5484d;border-color:#e5484d;color:#fff}
+@media (max-width:760px){body{flex-direction:column}aside{width:100%;max-height:42vh}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>NexaChat</h1>
+  <button id="new">+ New chat</button>
+  <h2>Documents</h2>
+  <input type="file" id="file" accept=".pdf,.txt,.md" hidden>
+  <button id="up" class="p">Upload PDF / TXT / MD</button>
+  <div id="note"></div>
+  <div id="docs"></div>
+  <h2>Settings</h2>
+  <label class="t"><input type="checkbox" id="useDocs" checked> Answer from my documents</label>
+  <label class="t"><input type="checkbox" id="speak"> Speak replies</label>
+</aside>
+<main>
+  <div id="log"><div class="m bot">Hi! Upload a document and ask me about it, or just chat. I remember our conversation. You can also use the mic and speak in English, Hindi or Hinglish.</div></div>
+  <form id="form">
+    <button type="button" id="mic" title="Hold to record: click to start, click again to stop">🎤</button>
+    <input type="text" id="msg" placeholder="Type your message..." autocomplete="off">
+    <button class="p" id="send">Send</button>
+  </form>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let sid=localStorage.getItem('nexa_sid');
+if(!sid){sid=crypto.randomUUID();localStorage.setItem('nexa_sid',sid)}
+
+function add(text,cls,sources){
+  const d=document.createElement('div');d.className='m '+cls;d.textContent=text;
+  if(sources&&sources.length){
+    const s=document.createElement('div');s.className='src';
+    sources.forEach(x=>{const c=document.createElement('span');c.textContent='['+x.n+'] '+x.source+', p.'+x.page;s.appendChild(c)});
+    d.appendChild(s);
+  }
+  $('log').appendChild(d);$('log').scrollTop=1e9;return d;
+}
+async function api(url,opts){
+  const r=await fetch(url,opts);const j=await r.json();
+  if(!r.ok)throw new Error(j.error||'Request failed');return j;
+}
+async function loadDocs(){
+  const list=await api('/api/docs');const box=$('docs');box.innerHTML='';
+  list.forEach(d=>{
+    const row=document.createElement('div');row.className='doc';
+    const n=document.createElement('span');n.textContent=d.name;n.title=d.name;
+    const sm=document.createElement('small');sm.textContent=d.chunks+' chunks';
+    const x=document.createElement('button');x.textContent='✕';x.title='Remove';
+    x.onclick=async()=>{await api('/api/docs/'+encodeURIComponent(d.name),{method:'DELETE'});loadDocs()};
+    row.append(n,sm,x);box.appendChild(row);
+  });
+}
+$('up').onclick=()=>$('file').click();
+$('file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  $('note').textContent='Indexing '+f.name+'...';
+  const fd=new FormData();fd.append('file',f);
+  try{const r=await api('/api/upload',{method:'POST',body:fd});$('note').textContent='Indexed '+r.chunks+' chunks.';loadDocs()}
+  catch(err){$('note').textContent=err.message}
+  e.target.value='';
+};
+async function send(text){
+  add(text,'me');$('msg').value='';
+  const wait=add('Thinking...','bot');
+  try{
+    const r=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message:text,session_id:sid,use_docs:$('useDocs').checked})});
+    wait.remove();add(r.answer,'bot',r.sources);
+    if($('speak').checked){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(r.answer))}
+  }catch(err){wait.remove();add('Error: '+err.message,'bot')}
+}
+$('form').onsubmit=e=>{e.preventDefault();const t=$('msg').value.trim();if(t)send(t)};
+$('new').onclick=async()=>{
+  await api('/api/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid})});
+  $('log').innerHTML='';add('New chat started. Memory cleared.','bot');
+};
+
+let rec=null,chunks=[];
+$('mic').onclick=async()=>{
+  if(rec&&rec.state==='recording'){rec.stop();return}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    rec=new MediaRecorder(stream);chunks=[];
+    rec.ondataavailable=e=>chunks.push(e.data);
+    rec.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());$('mic').classList.remove('rec');
+      const fd=new FormData();fd.append('audio',new Blob(chunks,{type:'audio/webm'}),'audio.webm');
+      $('msg').placeholder='Transcribing...';
+      try{const r=await api('/api/transcribe',{method:'POST',body:fd});if(r.text.trim())send(r.text.trim())}
+      catch(err){add('Error: '+err.message,'bot')}
+      $('msg').placeholder='Type your message...';
+    };
+    rec.start();$('mic').classList.add('rec');
+  }catch(err){add('Microphone not available: '+err.message,'bot')}
+};
+loadDocs();
+</script>
+</body>
+</html>

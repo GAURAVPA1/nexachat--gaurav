@@ -1,0 +1,6 @@
+flask
+python-dotenv
+google-genai
+groq
+chromadb
+pypdf
